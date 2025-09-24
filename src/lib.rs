@@ -71,7 +71,7 @@ use ak8963::AK8963;
 
 use core::marker::PhantomData;
 
-use hal::blocking::delay::DelayMs;
+use hal::delay::DelayNs;
 use hal::spi::{Mode, Phase, Polarity};
 
 pub use conf::*;
@@ -171,13 +171,14 @@ const TEMP_ROOM_OFFSET: f32 = 0.0;
 #[cfg(not(feature = "i2c"))]
 mod spi_defs {
     use super::*;
-    use hal::blocking::spi;
-    use hal::digital::v2::OutputPin;
+    use hal::spi;
+    use hal::digital::OutputPin;
 
     // SPI device, 6DOF
     impl<E, SPI, NCS> Mpu9250<SpiDevice<SPI, NCS>, Imu>
-        where SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
-              NCS: OutputPin
+        where 
+            SPI: spi::SpiDevice<u8, Error = E>,
+            NCS: OutputPin
     {
         /// Creates a new [`Imu`] driver from a SPI peripheral and a NCS pin
         /// with default configuration.
@@ -187,7 +188,7 @@ mod spi_defs {
             delay: &mut D)
             -> Result<Self,
                       Error<<SpiDevice<SPI, NCS> as device::Device>::Error>>
-            where D: DelayMs<u8>
+            where D: DelayNs
         {
             Self::imu(spi, ncs, delay, &mut MpuConfig::imu())
         }
@@ -201,9 +202,9 @@ mod spi_defs {
             ncs: NCS,
             delay: &mut D,
             config: &mut MpuConfig<Imu>)
-            -> Result<Self,
-                      Error<<SpiDevice<SPI, NCS> as device::Device>::Error>>
-            where D: DelayMs<u8>
+            -> Result<Self, Error<<SpiDevice<SPI, NCS> as device::Device>::Error>>
+        where 
+            D: DelayNs
         {
             let dev = SpiDevice::new(spi, ncs);
             Self::new_imu(dev, delay, config)
@@ -227,7 +228,7 @@ mod spi_defs {
             reinit_fn: F)
             -> Result<Self,
                       Error<<SpiDevice<SPI, NCS> as device::Device>::Error>>
-            where D: DelayMs<u8>,
+            where D: DelayNs,
                   F: FnOnce(SPI, NCS) -> Option<(SPI, NCS)>
         {
             let dev = SpiDevice::new(spi, ncs);
@@ -238,8 +239,9 @@ mod spi_defs {
 
     // SPI device, 9 DOF
     impl<E, SPI, NCS> Mpu9250<SpiDevice<SPI, NCS>, Marg>
-        where SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
-              NCS: OutputPin
+        where 
+            SPI: spi::SpiDevice<u8, Error = E>,
+            NCS: OutputPin
     {
         /// Creates a new [`Marg`] driver from a SPI peripheral and a NCS pin
         /// with default [`Config`].
@@ -251,7 +253,7 @@ mod spi_defs {
             delay: &mut D)
             -> Result<Self,
                       Error<<SpiDevice<SPI, NCS> as device::Device>::Error>>
-            where D: DelayMs<u8>
+            where D: DelayNs
         {
             Mpu9250::marg(spi, ncs, delay, &mut MpuConfig::marg())
         }
@@ -267,7 +269,7 @@ mod spi_defs {
             config: &mut MpuConfig<Marg>)
             -> Result<Self,
                       Error<<SpiDevice<SPI, NCS> as device::Device>::Error>>
-            where D: DelayMs<u8>
+            where D: DelayNs
         {
             let dev = SpiDevice::new(spi, ncs);
             Self::new_marg(dev, delay, config)
@@ -291,7 +293,7 @@ mod spi_defs {
             reinit_fn: F)
             -> Result<Self,
                       Error<<SpiDevice<SPI, NCS> as device::Device>::Error>>
-            where D: DelayMs<u8>,
+            where D: DelayNs,
                   F: FnOnce(SPI, NCS) -> Option<(SPI, NCS)>
         {
             let dev = SpiDevice::new(spi, ncs);
@@ -302,8 +304,9 @@ mod spi_defs {
 
     #[cfg(feature = "dmp")]
     impl<E, SPI, NCS> Mpu9250<SpiDevice<SPI, NCS>, Dmp>
-        where SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
-              NCS: OutputPin
+        where 
+            SPI: spi::SpiDevice<u8, Error = E>,
+            NCS: OutputPin
     {
         /// Create a new dmp device with default configuration
         pub fn dmp_default<D>(
@@ -313,7 +316,7 @@ mod spi_defs {
             firmware: &[u8])
             -> Result<Self,
                       Error<<SpiDevice<SPI, NCS> as device::Device>::Error>>
-            where D: DelayMs<u8>
+            where D: DelayNs
         {
             let dev = SpiDevice::new(spi, ncs);
             Self::new_dmp(dev, delay, &mut MpuConfig::dmp(), firmware)
@@ -328,7 +331,7 @@ mod spi_defs {
             firmware: &[u8])
             -> Result<Self,
                       Error<<SpiDevice<SPI, NCS> as device::Device>::Error>>
-            where D: DelayMs<u8>
+            where D: DelayNs
         {
             let dev = SpiDevice::new(spi, ncs);
             Self::new_dmp(dev, delay, config, firmware)
@@ -337,8 +340,9 @@ mod spi_defs {
 
     // SPI device, any mode
     impl<E, SPI, NCS, MODE> Mpu9250<SpiDevice<SPI, NCS>, MODE>
-        where SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
-              NCS: OutputPin
+        where 
+            SPI: spi::SpiDevice<u8, Error = E>,
+            NCS: OutputPin
     {
         /// Destroys the driver recovering the SPI peripheral and the NCS pin
         pub fn release(self) -> (SPI, NCS) {
@@ -368,12 +372,10 @@ pub use spi_defs::*;
 #[cfg(feature = "i2c")]
 mod i2c_defs {
     use super::*;
-    use hal::blocking::i2c;
+    use hal::i2c::{self, ErrorType, I2c};
 
-    impl<E, I2C> Mpu9250<I2cDevice<I2C>, Imu>
-        where I2C: i2c::Read<Error = E>
-                  + i2c::Write<Error = E>
-                  + i2c::WriteRead<Error = E>
+    impl<I2C> Mpu9250<I2cDevice<I2C>, Imu>
+        where I2C: I2c + ErrorType
     {
         /// Creates a new [`Imu`] driver from an I2C peripheral
         /// with default configuration.
@@ -381,7 +383,7 @@ mod i2c_defs {
             i2c: I2C,
             delay: &mut D)
             -> Result<Self, Error<<I2cDevice<I2C> as device::Device>::Error>>
-            where D: DelayMs<u8>
+            where D: DelayNs
         {
             Mpu9250::imu(i2c, delay, &mut MpuConfig::imu())
         }
@@ -395,7 +397,7 @@ mod i2c_defs {
             delay: &mut D,
             config: &mut MpuConfig<Imu>)
             -> Result<Self, Error<<I2cDevice<I2C> as device::Device>::Error>>
-            where D: DelayMs<u8>
+            where D: DelayNs
         {
             let dev = I2cDevice::new(i2c);
             Mpu9250::new_imu(dev, delay, config)
@@ -413,7 +415,7 @@ mod i2c_defs {
             config: &mut MpuConfig<Imu>,
             reinit_fn: F)
             -> Result<Self, Error<<I2cDevice<I2C> as device::Device>::Error>>
-            where D: DelayMs<u8>,
+            where D: DelayNs,
                   F: FnOnce(I2C) -> Option<I2C>
         {
             let dev = I2cDevice::new(i2c);
@@ -422,10 +424,8 @@ mod i2c_defs {
         }
     }
 
-    impl<E, I2C> Mpu9250<I2cDevice<I2C>, Marg>
-        where I2C: i2c::Read<Error = E>
-                  + i2c::Write<Error = E>
-                  + i2c::WriteRead<Error = E>
+    impl<I2C> Mpu9250<I2cDevice<I2C>, Marg>
+        where I2C: I2c + ErrorType,
     {
         /// Creates a new [`Marg`] driver from an I2C peripheral with
         /// default [`Config`].
@@ -435,7 +435,7 @@ mod i2c_defs {
             i2c: I2C,
             delay: &mut D)
             -> Result<Self, Error<<I2cDevice<I2C> as device::Device>::Error>>
-            where D: DelayMs<u8>
+        where D: DelayNs,
         {
             Mpu9250::marg(i2c, delay, &mut MpuConfig::marg())
         }
@@ -449,7 +449,7 @@ mod i2c_defs {
             delay: &mut D,
             config: &mut MpuConfig<Marg>)
             -> Result<Self, Error<<I2cDevice<I2C> as device::Device>::Error>>
-            where D: DelayMs<u8>
+            where D: DelayNs
         {
             let dev = I2cDevice::new(i2c);
             Self::new_marg(dev, delay, config)
@@ -467,7 +467,7 @@ mod i2c_defs {
             config: &mut MpuConfig<Marg>,
             reinit_fn: F)
             -> Result<Self, Error<<I2cDevice<I2C> as device::Device>::Error>>
-            where D: DelayMs<u8>,
+            where D: DelayNs,
                   F: FnOnce(I2C) -> Option<I2C>
         {
             let dev = I2cDevice::new(i2c);
@@ -477,10 +477,8 @@ mod i2c_defs {
     }
 
     #[cfg(feature = "dmp")]
-    impl<E, I2C> Mpu9250<I2cDevice<I2C>, Dmp>
-        where I2C: i2c::Read<Error = E>
-                  + i2c::Write<Error = E>
-                  + i2c::WriteRead<Error = E>
+    impl<I2C> Mpu9250<I2cDevice<I2C>, Dmp>
+        where I2C: I2c + ErrorType
     {
         /// Creates a new DMP driver from an I2C peripheral with default
         /// configuration
@@ -489,7 +487,7 @@ mod i2c_defs {
             delay: &mut D,
             firmware: &[u8])
             -> Result<Self, Error<<I2cDevice<I2C> as device::Device>::Error>>
-            where D: DelayMs<u8>
+            where D: DelayNs
         {
             let dev = I2cDevice::new(i2c);
             Self::new_dmp(dev, delay, &mut MpuConfig::dmp(), firmware)
@@ -502,7 +500,7 @@ mod i2c_defs {
             config: &mut MpuConfig<Dmp>,
             firmware: &[u8])
             -> Result<Self, Error<<I2cDevice<I2C> as device::Device>::Error>>
-            where D: DelayMs<u8>
+            where D: DelayNs
         {
             let dev = I2cDevice::new(i2c);
             Self::new_dmp(dev, delay, config, firmware)
@@ -510,10 +508,8 @@ mod i2c_defs {
     }
 
     // I2C device, any mode
-    impl<E, I2C, MODE> Mpu9250<I2cDevice<I2C>, MODE>
-        where I2C: i2c::Read<Error = E>
-                  + i2c::Write<Error = E>
-                  + i2c::WriteRead<Error = E>
+    impl<I2C, MODE> Mpu9250<I2cDevice<I2C>, MODE>
+        where I2C: I2c + ErrorType
     {
         /// Destroys the driver, recovering the I2C peripheral
         pub fn release(self) -> I2C {
@@ -546,7 +542,7 @@ impl<E, DEV> Mpu9250<DEV, Imu> where DEV: Device<Error = E>
                   delay: &mut D,
                   config: &mut MpuConfig<Imu>)
                   -> Result<Self, Error<E>>
-        where D: DelayMs<u8>
+        where D: DelayNs
     {
         let mut mpu9250 =
             Mpu9250 { dev,
@@ -631,7 +627,7 @@ impl<E, DEV> Mpu9250<DEV, Imu> where DEV: Device<Error = E>
     pub fn calibrate_at_rest<D, T>(&mut self,
                                    delay: &mut D)
                                    -> Result<T, Error<E>>
-        where D: DelayMs<u8>,
+        where D: DelayNs,
               T: From<[f32; 3]>
     {
         Ok(self._calibrate_at_rest(delay)?.into())
@@ -648,7 +644,7 @@ impl<E, DEV> Mpu9250<DEV, Marg>
                    delay: &mut D,
                    config: &mut MpuConfig<Marg>)
                    -> Result<Self, Error<E>>
-        where D: DelayMs<u8>
+        where D: DelayNs
     {
         let mut mpu9250 =
             Mpu9250 { dev,
@@ -691,7 +687,7 @@ impl<E, DEV> Mpu9250<DEV, Marg>
     pub fn calibrate_at_rest<D, T>(&mut self,
                                    delay: &mut D)
                                    -> Result<T, Error<E>>
-        where D: DelayMs<u8>,
+        where D: DelayNs,
               T: From<[f32; 3]>
     {
         let accel_biases = self._calibrate_at_rest(delay)?;
@@ -700,7 +696,7 @@ impl<E, DEV> Mpu9250<DEV, Marg>
     }
 
     fn init_ak8963<D>(&mut self, delay: &mut D) -> Result<(), E>
-        where D: DelayMs<u8>
+        where D: DelayNs
     {
         AK8963::init(&mut self.dev, delay)?;
         delay.delay_ms(10);
@@ -923,7 +919,7 @@ impl<E, DEV> Mpu9250<DEV, Dmp> where DEV: Device<Error = E>
                   config: &mut MpuConfig<Dmp>,
                   firmware: &[u8])
                   -> Result<Self, Error<E>>
-        where D: DelayMs<u8>
+        where D: DelayNs
     {
         let mut mpu9250 =
             Mpu9250 { dev,
@@ -959,7 +955,7 @@ impl<E, DEV> Mpu9250<DEV, Dmp> where DEV: Device<Error = E>
                    delay: &mut D,
                    firmware: &[u8])
                    -> Result<(), Error<E>>
-        where D: DelayMs<u8>
+        where D: DelayNs
     {
         let conf = self.dmp_configuration.unwrap_or_default();
         // disable i2c master mode and enable fifo
@@ -1060,7 +1056,7 @@ impl<E, DEV> Mpu9250<DEV, Dmp> where DEV: Device<Error = E>
 
     /// Select which dmp features should be enabled
     fn set_dmp_feature<D>(&mut self, delay: &mut D) -> Result<(), Error<E>>
-        where D: DelayMs<u8>
+        where D: DelayNs
     {
         let features = self.dmp_configuration.unwrap_or_default().features;
         const GYRO_SF: [u8; 4] = [(46_850_825 >> 24) as u8,
@@ -1243,7 +1239,7 @@ impl<E, DEV> Mpu9250<DEV, Dmp> where DEV: Device<Error = E>
 impl<E, DEV, MODE> Mpu9250<DEV, MODE> where DEV: Device<Error = E>
 {
     fn init_mpu<D>(&mut self, delay: &mut D) -> Result<(), E>
-        where D: DelayMs<u8>
+        where D: DelayNs
     {
         // Stop all communication with peripherals (such as AK8963).
         // If the chip is already powered up and if the communication is already
@@ -1372,7 +1368,7 @@ impl<E, DEV, MODE> Mpu9250<DEV, MODE> where DEV: Device<Error = E>
 
     /// Reset the internal FIFO
     pub fn reset_fifo<D>(&mut self, delay: &mut D) -> Result<(), Error<E>>
-        where D: DelayMs<u8>
+        where D: DelayNs
     {
         self.dev.write(Register::INT_ENABLE, 0)?;
         self.dev.write(Register::FIFO_EN, 0)?;
@@ -1554,7 +1550,7 @@ impl<E, DEV, MODE> Mpu9250<DEV, MODE> where DEV: Device<Error = E>
     fn _calibrate_at_rest<D>(&mut self,
                              delay: &mut D)
                              -> Result<[f32; 3], Error<E>>
-        where D: DelayMs<u8>
+        where D: DelayNs
     {
         // First save current values, as we reset them below
         let orig_gyro_scale = self.gyro_scale;
